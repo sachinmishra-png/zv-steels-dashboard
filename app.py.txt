@@ -25,7 +25,7 @@ st.markdown("""
 
 # 2. Live Dynamic Sheet Pipeline
 # PASTE YOUR GENERAL-ACCESS GOOGLE SHEET URL HERE:
-SHEET_URL = "YOUR_SHARED_GOOGLE_SHEET_URL_HERE"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1IHtomumrXZrNv9nrn3q7wjT7M2Nj0Jj8TkasAH6kwrw/edit?usp=sharing"
 
 @st.cache_data(ttl=15)
 def fetch_clean_tab(base_url, sheet_name):
