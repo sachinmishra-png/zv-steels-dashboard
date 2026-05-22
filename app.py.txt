@@ -25,21 +25,32 @@ st.markdown("""
 
 # 2. Live Dynamic Sheet Pipeline
 # PASTE YOUR GENERAL-ACCESS GOOGLE SHEET URL HERE:
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1IHtomumrXZrNv9nrn3q7wjT7M2Nj0Jj8TkasAH6kwrw/edit?usp=sharing"
+SHEET_URL = "YOUR_SHARED_GOOGLE_SHEET_URL_HERE"
 
-@st.cache_data(ttl=15) # Refreshes and inspects your Google Sheet every 15 seconds
+@st.cache_data(ttl=15)
 def fetch_clean_tab(base_url, sheet_name):
     try:
-        # Re-engineers standard sheet link to query automated CSV exports cleanly
         csv_endpoint = base_url.split("/edit")[0] + f"/gviz/tq?tqx=out:csv&sheet={sheet_name}"
-        df = pd.read_csv(csv_endpoint, skiprows=3) # Skips summary headers to parse raw data columns
-        # Strip unnamed columns
+        # Read raw data frame completely first to scan for column headers dynamically
+        df_raw = pd.read_csv(csv_endpoint, header=None)
+        
+        # Scan first 10 rows to find the entry containing core keywords like "Week" or "Entity" or "Customer"
+        header_idx = 0
+        for i in range(min(10, len(df_raw))):
+            row_str = " ".join(df_raw.iloc[i].astype(str).tolist())
+            if any(kw in row_str for kw in ["Week", "Entity", "Customer", "Salesperson", "Category"]):
+                header_idx = i
+                break
+        
+        # Reload with the correct localized header setup dynamically
+        df = pd.read_csv(csv_endpoint, skiprows=header_idx)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        df = df.dropna(how='all')
         return df
     except Exception as e:
         return pd.DataFrame()
 
-# Stream your specific workbook matrices
+# Stream data tables from your workbook tabs
 df_summary = fetch_clean_tab(SHEET_URL, "Weekly Summary")
 df_bifurcation = fetch_clean_tab(SHEET_URL, "Sales Bifurcation")
 df_crr_team = fetch_clean_tab(SHEET_URL, "CRR Consolidated")
@@ -47,88 +58,99 @@ df_stock_interest = fetch_clean_tab(SHEET_URL, "Stock Interest")
 df_prod = fetch_clean_tab(SHEET_URL, "Production OFD OTD")
 
 if df_summary.empty:
-    st.warning("⚠️ Access stream initializing... Please verify that your shared Google Sheet URL is securely pasted on Line 26.")
+    st.warning("⚠️ Access stream initializing... Please verify that your shared Google Sheet URL is securely pasted on Line 31.")
 else:
-    # Cleanup data streams to drop empty rows
-    df_summary = df_summary[df_summary['Week'].str.contains('Week|Total', na=False, case=False)].reset_index(drop=True)
-    df_w1 = df_summary[df_summary['Week'] == 'Week 1'].iloc[0]
-
-    # Dashboard Banner Branding Header
-    st.title("ZV STEELS")
-    st.caption("Performance Activity Dashboard • Live Matrix Sync Engine")
-
-    # 3. Dynamic Key Performance Blocks
-    st.markdown("### ◆ Executive KPI Ledger")
-    m1, m2, m3 = st.columns(3)
+    # Filter target summary records row structures
+    df_summary = df_summary[df_summary['Week'].str.contains('Week|Total|Monthly', na=False, case=False)].reset_index(drop=True)
     
-    with m1:
-        val_crr = float(df_w1['CRR Actual ₹ Cr'])
-        diff_crr = float(df_w1['CRR Diff'])
-        st.metric(label="CRR Sales (Actual)", value=f"₹ {val_crr:.2f} Cr", 
-                  delta=f"{diff_crr:.2f} Cr Shortfall" if diff_crr < 0 else f"▲ {diff_crr:.2f} Cr",
-                  delta_color="normal" if diff_crr >= 0 else "inverse")
-    with m2:
-        val_nbd = float(df_w1['NBD Actual ₹ Cr'])
-        diff_nbd = float(df_w1['NBD Diff'])
-        st.metric(label="NBD Sales (Actual)", value=f"₹ {val_nbd:.2f} Cr", 
-                  delta=f"{val_nbd:.2f} Cr Shortfall" if diff_nbd < 0 else f"▲ {diff_nbd:.2f} Cr",
-                  delta_color="normal" if diff_nbd >= 0 else "inverse")
-    with m3:
-        val_coll = float(df_w1['Collection Actual ₹ Cr'])
-        diff_coll = float(df_w1['Collection Diff'])
-        st.metric(label="Financial Collections", value=f"₹ {val_coll:.2f} Cr", 
-                  delta=f"{diff_coll:.2f} Cr Shortfall" if diff_coll < 0 else f"▲ {diff_coll:.2f} Cr",
-                  delta_color="normal" if diff_coll >= 0 else "inverse")
+    # Safely isolate Week 1 data profile rows
+    df_w1_search = df_summary[df_summary['Week'].str.contains('Week 1', na=False, case=False)]
+    
+    if df_w1_search.empty:
+        st.error("❌ Data formatting error: Could not find row labeled 'Week 1' inside the Weekly Summary sheet tab.")
+    else:
+        df_w1 = df_w1_search.iloc[0]
 
-    # Operational Sub-row KPIs
-    st.markdown("### ◆ Logistics & Penalties Risk Metrics")
-    m4, m5, m6 = st.columns(3)
-    
-    with m4:
-        otd_pct = float(df_w1['OTD Actual %']) * 100 if float(df_w1['OTD Actual %']) <= 1 else float(df_w1['OTD Actual %'])
-        st.metric(label="On-Time Delivery Rate", value=f"{otd_pct:.1f}%", delta="Target threshold: 80%")
-    with m5:
-        # Sum direct customer interest penalty figures from the Stock Interest tab stream
-        interest_sum = pd.to_numeric(df_stock_interest['Interest Loss ₹'], errors='coerce').sum()
-        st.metric(label="Overdue Interest Loss Leakage", value=f"₹ {interest_sum:,.2f}", delta="Action Required", delta_color="inverse")
-    with m6:
-        st.metric(label="Total Inventory Ageing Status", value="9,549.64 MT", delta="Raw Material + FG Stock Status", delta_color="off")
+        # Dashboard Banner Branding Header
+        st.title("ZV STEELS")
+        st.caption("Performance Activity Dashboard • Live Matrix Sync Engine")
 
-    # 4. High-Fidelity Performance Trend Plotly Engine
-    st.markdown("### ◆ Weekly Performance Realization Graph")
-    df_weeks_only = df_summary[df_summary['Week'].str.contains('Week', na=False)]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Plan ₹ Cr'], name="Plan Target Profile", marker_color='#4a8fd4'))
-    fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Actual ₹ Cr'], name="Actual Performance Realized", marker_color='#c9a227'))
-    
-    fig.update_layout(
-        barmode='group',
-        margin=dict(l=10, r=10, t=15, b=10),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font_color="#f5f5f0",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        # 3. Dynamic Key Performance Blocks
+        st.markdown("### ◆ Executive KPI Ledger")
+        m1, m2, m3 = st.columns(3)
+        
+        with m1:
+            val_crr = float(df_w1['CRR Actual ₹ Cr']) if 'CRR Actual ₹ Cr' in df_w1 else 0.0
+            diff_crr = float(df_w1['CRR Diff']) if 'CRR Diff' in df_w1 else 0.0
+            st.metric(label="CRR Sales (Actual)", value=f"₹ {val_crr:.2f} Cr", 
+                      delta=f"{diff_crr:.2f} Cr Shortfall" if diff_crr < 0 else f"▲ {diff_crr:.2f} Cr",
+                      delta_color="normal" if diff_crr >= 0 else "inverse")
+        with m2:
+            val_nbd = float(df_w1['NBD Actual ₹ Cr']) if 'NBD Actual ₹ Cr' in df_w1 else 0.0
+            diff_nbd = float(df_w1['NBD Diff']) if 'NBD Diff' in df_w1 else 0.0
+            st.metric(label="NBD Sales (Actual)", value=f"₹ {val_nbd:.2f} Cr", 
+                      delta=f"{diff_nbd:.2f} Cr Shortfall" if diff_nbd < 0 else f"▲ {diff_nbd:.2f} Cr",
+                      delta_color="normal" if diff_nbd >= 0 else "inverse")
+        with m3:
+            val_coll = float(df_w1['Collection Actual ₹ Cr']) if 'Collection Actual ₹ Cr' in df_w1 else 0.0
+            diff_coll = float(df_w1['Collection Diff']) if 'Collection Diff' in df_w1 else 0.0
+            st.metric(label="Financial Collections", value=f"₹ {val_coll:.2f} Cr", 
+                      delta=f"{diff_coll:.2f} Cr Shortfall" if diff_coll < 0 else f"▲ {diff_coll:.2f} Cr",
+                      delta_color="normal" if diff_coll >= 0 else "inverse")
 
-    # 5. Mobile-Optimized Modular Workplace Ledger Tabs
-    st.markdown("### ◆ Granular Operational Ledgers")
-    tab_corp, tab_team, tab_stock = st.tabs(["🏢 Corporate Entity Bifurcation", "👥 Sales Team Performance", "📋 Penalty Accounts"])
-    
-    with tab_corp:
-        st.markdown("#### ZVS & ZVC Sales Breakdown Metrics")
-        if not df_bifurcation.empty:
-            st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
-            
-    with tab_team:
-        st.markdown("#### Salesperson Performance Tracking Profile")
-        if not df_crr_team.empty:
-            st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
-            
-    with tab_stock:
-        st.markdown("#### Overdue Balances Accounts Audit Ledger")
-        if not df_stock_interest.empty:
-            # Drop empty columns/rows cleanly to show customer ledger entries only
-            df_cust_clean = df_stock_interest[df_stock_interest['Customer'].notna()]
-            st.dataframe(df_cust_clean, use_container_width=True, hide_index=True)
+        # Operational Sub-row KPIs
+        st.markdown("### ◆ Logistics & Penalties Risk Metrics")
+        m4, m5, m6 = st.columns(3)
+        
+        with m4:
+            raw_otd = df_w1['OTD Actual %'] if 'OTD Actual %' in df_w1 else 0.0
+            otd_pct = float(raw_otd) * 100 if float(raw_otd) <= 1 else float(raw_otd)
+            st.metric(label="On-Time Delivery Rate", value=f"{otd_pct:.1f}%", delta="Target threshold: 80%")
+        with m5:
+            interest_sum = 0.0
+            if not df_stock_interest.empty and 'Interest Loss ₹' in df_stock_interest.columns:
+                interest_sum = pd.to_numeric(df_stock_interest['Interest Loss ₹'], errors='coerce').sum()
+            elif 'Interest Loss ₹' in df_w1:
+                interest_sum = float(df_w1['Interest Loss ₹'])
+            st.metric(label="Overdue Interest Loss Leakage", value=f"₹ {interest_sum:,.2f}", delta="Action Required", delta_color="inverse")
+        with m6:
+            st.metric(label="Total Inventory Ageing Status", value="9,549.64 MT", delta="Raw Material + FG Stock Status", delta_color="off")
+
+        # 4. High-Fidelity Performance Trend Plotly Engine
+        st.markdown("### ◆ Weekly Performance Realization Graph")
+        df_weeks_only = df_summary[df_summary['Week'].str.contains('Week', na=False, case=False)]
+        
+        fig = go.Figure()
+        if 'CRR Plan ₹ Cr' in df_weeks_only.columns:
+            fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Plan ₹ Cr'], name="Plan Target Profile", marker_color='#4a8fd4'))
+        if 'CRR Actual ₹ Cr' in df_weeks_only.columns:
+            fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Actual ₹ Cr'], name="Actual Performance Realized", marker_color='#c9a227'))
+        
+        fig.update_layout(
+            barmode='group',
+            margin=dict(l=10, r=10, t=15, b=10),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_color="#f5f5f0",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 5. Mobile-Optimized Modular Workplace Ledger Tabs
+        st.markdown("### ◆ Granular Operational Ledgers")
+        tab_corp, tab_team, tab_stock = st.tabs(["🏢 Corporate Entity Bifurcation", "👥 Sales Team Performance", "📋 Penalty Accounts"])
+        
+        with tab_corp:
+            st.markdown("#### ZVS & ZVC Sales Breakdown Metrics")
+            if not df_bifurcation.empty:
+                st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
+                
+        with tab_team:
+            st.markdown("#### Salesperson Performance Tracking Profile")
+            if not df_crr_team.empty:
+                st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
+                
+        with tab_stock:
+            st.markdown("#### Overdue Balances Accounts Audit Ledger")
+            if not df_stock_interest.empty:
+                st.dataframe(df_stock_interest, use_container_width=True, hide_index=True)
