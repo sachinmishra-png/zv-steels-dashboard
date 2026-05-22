@@ -23,8 +23,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_index=True)
 
-# 2. Live Dynamic Sheet Pipeline
-# PASTE YOUR GENERAL-ACCESS GOOGLE SHEET URL HERE:
+# 2. Live Dynamic Sheet Pipeline (Embedded Your URL)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1IHtomumrXZrNv9nrn3q7wjT7M2Nj0Jj8TkasAH6kwrw/edit?usp=sharing"
 
 @st.cache_data(ttl=15)
@@ -33,6 +32,7 @@ def fetch_clean_tab(base_url, sheet_name):
         csv_endpoint = base_url.split("/edit")[0] + f"/gviz/tq?tqx=out:csv&sheet={sheet_name}"
         df_raw = pd.read_csv(csv_endpoint, header=None)
         
+        # Look down the first few rows to find where our data matrix actually begins
         header_idx = 0
         for i in range(min(15, len(df_raw))):
             row_str = " ".join(df_raw.iloc[i].astype(str).tolist())
@@ -54,29 +54,32 @@ df_bifurcation = fetch_clean_tab(SHEET_URL, "Sales Bifurcation")
 df_crr_team = fetch_clean_tab(SHEET_URL, "CRR Consolidated")
 df_stock_interest = fetch_clean_tab(SHEET_URL, "Stock Interest")
 
-# Dashboard Banner Branding Header Always Shows Up First
+# Dashboard Banner Branding Header (Always loads first!)
 st.title("ZV STEELS")
 st.caption("Performance Activity Dashboard • Live Sync Engine")
 
 if df_summary.empty:
     st.warning("⚠️ Access stream initializing... Please verify your shared Google Sheet URL is securely pasted on Line 31.")
 else:
-    # Safely look up entries without causing positional index out of bounds crashes
-    df_w1_search = df_summary[df_summary.iloc[:, 0].astype(str).str.contains('Week 1', na=False, case=False)]
+    # Safe positional scanning: Convert first column to strings to isolate the 'Week 1' row
+    first_col_name = df_summary.columns[0]
+    df_w1_search = df_summary[df_summary[first_col_name].astype(str).str.contains('Week 1', na=False, case=False)]
     
-    # Helper function to find a column name dynamically regardless of special symbols or index positioning
+    # Helper function to grab values even if columns have weird characters or extra spaces
     def get_col_val(df_source, keywords, default=0.0):
         if df_source.empty:
             return default
         for col in df_source.columns:
             if all(kw.lower() in col.lower() for kw in keywords):
                 try:
-                    return float(df_source[col].iloc[0])
+                    # Clean currency symbols or commas if they appear as strings
+                    val_raw = str(df_source[col].iloc[0]).replace('₹','').replace(',','').strip()
+                    return float(val_raw)
                 except:
                     return default
         return default
 
-    # Dynamic Safe Extraction Map
+    # Pulling metrics cleanly via structural keywords
     val_crr = get_col_val(df_w1_search, ["CRR", "Actual"])
     diff_crr = get_col_val(df_w1_search, ["CRR", "Diff"])
     val_nbd = get_col_val(df_w1_search, ["NBD", "Actual"])
@@ -87,7 +90,7 @@ else:
     raw_otd = get_col_val(df_w1_search, ["OTD"])
     otd_pct = raw_otd * 100 if raw_otd <= 1.0 else raw_otd
 
-    # 3. Dynamic Executive Key Performance Scorecards
+    # 3. Key Performance Scorecard Visualizations
     st.markdown("### ◆ Executive KPI Ledger")
     m1, m2, m3 = st.columns(3)
     
@@ -121,21 +124,19 @@ else:
     with m6:
         st.metric(label="Total Inventory Ageing Status", value="9,549.64 MT", delta="Raw Material + FG Stock Status", delta_color="off")
 
-    # 4. Performance Trend Plotly Engine
+    # 4. Performance Trend Chart
     st.markdown("### ◆ Weekly Performance Realization Graph")
-    df_weeks_only = df_summary[df_summary.iloc[:, 0].astype(str).str.contains('Week', na=False, case=False)]
+    df_weeks_only = df_summary[df_summary[first_col_name].astype(str).str.contains('Week', na=False, case=False)]
     
     fig = go.Figure()
     if not df_weeks_only.empty:
-        # Search columns to bind x and y elements safely
-        col_x = df_weeks_only.columns[0]
         col_plan = [c for c in df_weeks_only.columns if "CRR" in c and "Plan" in c]
         col_act = [c for c in df_weeks_only.columns if "CRR" in c and "Actual" in c]
         
         if col_plan:
-            fig.add_trace(go.Bar(x=df_weeks_only[col_x], y=df_weeks_only[col_plan[0]], name="Plan Target Profile", marker_color='#4a8fd4'))
+            fig.add_trace(go.Bar(x=df_weeks_only[first_col_name], y=df_weeks_only[col_plan[0]], name="Plan Target Profile", marker_color='#4a8fd4'))
         if col_act:
-            fig.add_trace(go.Bar(x=df_weeks_only[col_x], y=df_weeks_only[col_act[0]], name="Actual Performance Realized", marker_color='#c9a227'))
+            fig.add_trace(go.Bar(x=df_weeks_only[first_col_name], y=df_weeks_only[col_act[0]], name="Actual Performance Realized", marker_color='#c9a227'))
     
     fig.update_layout(
         barmode='group',
@@ -147,7 +148,7 @@ else:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# 5. Interactive Modular Ledger Tabs (Always available outside processing limits)
+# 5. Interactive Operational Ledger Data Tables
 st.markdown("### ◆ Granular Operational Ledgers")
 tab_corp, tab_team, tab_stock = st.tabs(["🏢 Corporate Entity Bifurcation", "👥 Sales Team Performance", "📋 Penalty Accounts"])
 
@@ -156,14 +157,14 @@ with tab_corp:
     if not df_bifurcation.empty:
         st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
     else:
-        st.info("Awaiting live corporate entity data synchronization connection...")
+        st.info("Awaiting live corporate entity data synchronization...")
         
 with tab_team:
     st.markdown("#### Salesperson Performance Tracking Profile")
     if not df_crr_team.empty:
         st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
     else:
-        st.info("Awaiting live team sales log data synchronization connection...")
+        st.info("Awaiting live team sales log data synchronization...")
         
 with tab_stock:
     st.markdown("#### Overdue Balances Accounts Audit Ledger")
