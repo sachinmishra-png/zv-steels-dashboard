@@ -1,0 +1,134 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+
+# 1. Premium Executive Theme Engine Setup
+st.set_page_config(
+    page_title="ZV STEELS – Executive Dashboard",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+    <style>
+    .stApp { background-color: #0d1b2e; color: #f5f5f0; }
+    h1, h2, h3 { color: #c9a227 !important; font-family: 'DM Sans', sans-serif; font-weight: 700; }
+    div[data-testid="stMetricValue"] { color: #f5f5f0 !important; font-size: 26px !important; font-weight: bold; }
+    div[data-testid="stMetricLabel"] { color: #8899aa !important; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+    .dataframe { background-color: #162440 !important; border: 1px solid rgba(255,255,255,0.08) !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] { background-color: #162440; border-radius: 4px 4px 0px 0px; color: #8899aa; padding: 10px 20px; }
+    .stTabs [aria-selected="true"] { background-color: #c9a227 !important; color: #0d1b2e !important; font-weight: bold; }
+    </style>
+""", unsafe_allow_index=True)
+
+# 2. Live Dynamic Sheet Pipeline
+# PASTE YOUR GENERAL-ACCESS GOOGLE SHEET URL HERE:
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1IHtomumrXZrNv9nrn3q7wjT7M2Nj0Jj8TkasAH6kwrw/edit?usp=sharing"
+
+@st.cache_data(ttl=15) # Refreshes and inspects your Google Sheet every 15 seconds
+def fetch_clean_tab(base_url, sheet_name):
+    try:
+        # Re-engineers standard sheet link to query automated CSV exports cleanly
+        csv_endpoint = base_url.split("/edit")[0] + f"/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+        df = pd.read_csv(csv_endpoint, skiprows=3) # Skips summary headers to parse raw data columns
+        # Strip unnamed columns
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+# Stream your specific workbook matrices
+df_summary = fetch_clean_tab(SHEET_URL, "Weekly Summary")
+df_bifurcation = fetch_clean_tab(SHEET_URL, "Sales Bifurcation")
+df_crr_team = fetch_clean_tab(SHEET_URL, "CRR Consolidated")
+df_stock_interest = fetch_clean_tab(SHEET_URL, "Stock Interest")
+df_prod = fetch_clean_tab(SHEET_URL, "Production OFD OTD")
+
+if df_summary.empty:
+    st.warning("⚠️ Access stream initializing... Please verify that your shared Google Sheet URL is securely pasted on Line 26.")
+else:
+    # Cleanup data streams to drop empty rows
+    df_summary = df_summary[df_summary['Week'].str.contains('Week|Total', na=False, case=False)].reset_index(drop=True)
+    df_w1 = df_summary[df_summary['Week'] == 'Week 1'].iloc[0]
+
+    # Dashboard Banner Branding Header
+    st.title("ZV STEELS")
+    st.caption("Performance Activity Dashboard • Live Matrix Sync Engine")
+
+    # 3. Dynamic Key Performance Blocks
+    st.markdown("### ◆ Executive KPI Ledger")
+    m1, m2, m3 = st.columns(3)
+    
+    with m1:
+        val_crr = float(df_w1['CRR Actual ₹ Cr'])
+        diff_crr = float(df_w1['CRR Diff'])
+        st.metric(label="CRR Sales (Actual)", value=f"₹ {val_crr:.2f} Cr", 
+                  delta=f"{diff_crr:.2f} Cr Shortfall" if diff_crr < 0 else f"▲ {diff_crr:.2f} Cr",
+                  delta_color="normal" if diff_crr >= 0 else "inverse")
+    with m2:
+        val_nbd = float(df_w1['NBD Actual ₹ Cr'])
+        diff_nbd = float(df_w1['NBD Diff'])
+        st.metric(label="NBD Sales (Actual)", value=f"₹ {val_nbd:.2f} Cr", 
+                  delta=f"{val_nbd:.2f} Cr Shortfall" if diff_nbd < 0 else f"▲ {diff_nbd:.2f} Cr",
+                  delta_color="normal" if diff_nbd >= 0 else "inverse")
+    with m3:
+        val_coll = float(df_w1['Collection Actual ₹ Cr'])
+        diff_coll = float(df_w1['Collection Diff'])
+        st.metric(label="Financial Collections", value=f"₹ {val_coll:.2f} Cr", 
+                  delta=f"{diff_coll:.2f} Cr Shortfall" if diff_coll < 0 else f"▲ {diff_coll:.2f} Cr",
+                  delta_color="normal" if diff_coll >= 0 else "inverse")
+
+    # Operational Sub-row KPIs
+    st.markdown("### ◆ Logistics & Penalties Risk Metrics")
+    m4, m5, m6 = st.columns(3)
+    
+    with m4:
+        otd_pct = float(df_w1['OTD Actual %']) * 100 if float(df_w1['OTD Actual %']) <= 1 else float(df_w1['OTD Actual %'])
+        st.metric(label="On-Time Delivery Rate", value=f"{otd_pct:.1f}%", delta="Target threshold: 80%")
+    with m5:
+        # Sum direct customer interest penalty figures from the Stock Interest tab stream
+        interest_sum = pd.to_numeric(df_stock_interest['Interest Loss ₹'], errors='coerce').sum()
+        st.metric(label="Overdue Interest Loss Leakage", value=f"₹ {interest_sum:,.2f}", delta="Action Required", delta_color="inverse")
+    with m6:
+        st.metric(label="Total Inventory Ageing Status", value="9,549.64 MT", delta="Raw Material + FG Stock Status", delta_color="off")
+
+    # 4. High-Fidelity Performance Trend Plotly Engine
+    st.markdown("### ◆ Weekly Performance Realization Graph")
+    df_weeks_only = df_summary[df_summary['Week'].str.contains('Week', na=False)]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Plan ₹ Cr'], name="Plan Target Profile", marker_color='#4a8fd4'))
+    fig.add_trace(go.Bar(x=df_weeks_only['Week'], y=df_weeks_only['CRR Actual ₹ Cr'], name="Actual Performance Realized", marker_color='#c9a227'))
+    
+    fig.update_layout(
+        barmode='group',
+        margin=dict(l=10, r=10, t=15, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font_color="#f5f5f0",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 5. Mobile-Optimized Modular Workplace Ledger Tabs
+    st.markdown("### ◆ Granular Operational Ledgers")
+    tab_corp, tab_team, tab_stock = st.tabs(["🏢 Corporate Entity Bifurcation", "👥 Sales Team Performance", "📋 Penalty Accounts"])
+    
+    with tab_corp:
+        st.markdown("#### ZVS & ZVC Sales Breakdown Metrics")
+        if not df_bifurcation.empty:
+            st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
+            
+    with tab_team:
+        st.markdown("#### Salesperson Performance Tracking Profile")
+        if not df_crr_team.empty:
+            st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
+            
+    with tab_stock:
+        st.markdown("#### Overdue Balances Accounts Audit Ledger")
+        if not df_stock_interest.empty:
+            # Drop empty columns/rows cleanly to show customer ledger entries only
+            df_cust_clean = df_stock_interest[df_stock_interest['Customer'].notna()]
+            st.dataframe(df_cust_clean, use_container_width=True, hide_index=True)
