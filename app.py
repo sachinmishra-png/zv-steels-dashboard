@@ -27,20 +27,32 @@ st.markdown("""
 RAW_URL = "https://docs.google.com/spreadsheets/d/1IHtomumrXZrNv9nrn3q7wjT7M2Nj0Jj8TkasAH6kwrw/edit?usp=sharing"
 EXPORT_URL = RAW_URL.split("/edit")[0] + "/export?format=xlsx"
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=5) # Reduced cache to 5 seconds for instant debugging edits
 def load_all_sheets(url):
     try:
         return pd.ExcelFile(url)
-    except Exception as e:
+    except:
         return None
 
 excel_data = load_all_sheets(EXPORT_URL)
 
-def get_clean_df(excel_obj, sheet_name):
-    if excel_obj is None or sheet_name not in excel_obj.sheet_names:
+def get_clean_df(excel_obj, potential_names):
+    if excel_obj is None:
         return pd.DataFrame()
+    
+    # Match sheet names dynamically ignoring casing or hidden trailing spaces
+    target_sheet = None
+    for name in excel_obj.sheet_names:
+        cleaned_name = name.strip().lower()
+        if any(p.strip().lower() == cleaned_name for p in potential_names):
+            target_sheet = name
+            break
+            
+    if target_sheet is None:
+        return pd.DataFrame()
+        
     try:
-        df_raw = pd.read_excel(excel_obj, sheet_name=sheet_name, header=None)
+        df_raw = pd.read_excel(excel_obj, sheet_name=target_sheet, header=None)
         header_idx = 0
         for i in range(min(15, len(df_raw))):
             row_str = " ".join(df_raw.iloc[i].astype(str).tolist())
@@ -48,26 +60,27 @@ def get_clean_df(excel_obj, sheet_name):
                 header_idx = i
                 break
         
-        df = pd.read_excel(excel_obj, sheet_name=sheet_name, skiprows=header_idx)
+        df = pd.read_excel(excel_obj, sheet_name=target_sheet, skiprows=header_idx)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df.columns = df.columns.str.strip()
         return df.dropna(how='all')
     except:
         return pd.DataFrame()
 
-# Extract tables
-df_summary = get_clean_df(excel_data, "Weekly Summary")
-df_bifurcation = get_clean_df(excel_data, "Sales Bifurcation")
-df_crr_team = get_clean_df(excel_data, "CRR Consolidated")
-df_stock_interest = get_clean_df(excel_data, "Stock Interest")
+# Extract from live data streams with fallback naming compatibility
+df_summary = get_clean_df(excel_data, ["Weekly Summary", "Dashboard"])
+df_bifurcation = get_clean_df(excel_data, ["Sales Bifurcation", "Bifurcation"])
+df_crr_team = get_clean_df(excel_data, ["CRR Consolidated", "CRR Performance"])
+df_stock_interest = get_clean_df(excel_data, ["Stock Interest", "Stock Ageing"])
 
-# Dashboard Banner Header
+# Dashboard Banner Branding Header Always Loads First
 st.title("ZV STEELS")
 st.caption("Performance Activity Dashboard • Live Sync Engine")
 
 if df_summary.empty:
-    st.warning("⚠️ Access stream initializing... Please verify your Google Sheet is set to 'Anyone with the link can view'.")
+    st.warning("⚠️ Access stream initializing... Please verify your workbook tabs include 'Weekly Summary' or 'Dashboard'.")
 else:
+    # Look up text inside the first column safely
     first_col = df_summary.columns[0]
     df_w1_search = df_summary[df_summary[first_col].astype(str).str.contains('Week 1', na=False, case=False)]
     
@@ -83,7 +96,7 @@ else:
                     return default
         return default
 
-    # Metrics
+    # Force search to look for standard metric headings
     val_crr = get_col_val(df_w1_search, ["CRR", "Actual"])
     diff_crr = get_col_val(df_w1_search, ["CRR", "Diff"])
     val_nbd = get_col_val(df_w1_search, ["NBD", "Actual"])
@@ -94,7 +107,7 @@ else:
     raw_otd = get_col_val(df_w1_search, ["OTD"])
     otd_pct = raw_otd * 100 if raw_otd <= 1.0 else raw_otd
 
-    # Render Executive Ledger
+    # 3. Dynamic Key Performance Scorecards
     st.markdown("### ◆ Executive KPI Ledger")
     m1, m2, m3 = st.columns(3)
     
@@ -111,7 +124,7 @@ else:
                   delta=f"{diff_coll:.2f} Cr Shortfall" if diff_coll < 0 else f"▲ {diff_coll:.2f} Cr",
                   delta_color="normal" if diff_coll >= 0 else "inverse")
 
-    # Metrics Row 2
+    # Operational Sub-row KPIs
     st.markdown("### ◆ Logistics & Penalties Risk Metrics")
     m4, m5, m6 = st.columns(3)
     
@@ -128,7 +141,7 @@ else:
     with m6:
         st.metric(label="Total Inventory Ageing Status", value="9,549.64 MT", delta="Raw Material + FG Stock Status", delta_color="off")
 
-    # Chart
+    # 4. Performance Trend Plotly Engine
     st.markdown("### ◆ Weekly Performance Realization Graph")
     df_weeks_only = df_summary[df_summary[first_col].astype(str).str.contains('Week', na=False, case=False)]
     
@@ -136,27 +149,43 @@ else:
     if not df_weeks_only.empty:
         col_plan = [c for c in df_weeks_only.columns if "CRR" in c and "Plan" in c]
         col_act = [c for c in df_weeks_only.columns if "CRR" in c and "Actual" in c]
+        
         if col_plan:
             fig.add_trace(go.Bar(x=df_weeks_only[first_col], y=df_weeks_only[col_plan[0]], name="Plan Target Profile", marker_color='#4a8fd4'))
         if col_act:
             fig.add_trace(go.Bar(x=df_weeks_only[first_col], y=df_weeks_only[col_act[0]], name="Actual Performance Realized", marker_color='#c9a227'))
     
-    fig.update_layout(barmode='group', margin=dict(l=10, r=10, t=15, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="#f5f5f0")
+    fig.update_layout(
+        barmode='group',
+        margin=dict(l=10, r=10, t=15, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font_color="#f5f5f0",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-# Tabs
+# 5. Modular Ledger Data Tables
 st.markdown("### ◆ Granular Operational Ledgers")
 tab_corp, tab_team, tab_stock = st.tabs(["🏢 Corporate Entity Bifurcation", "👥 Sales Team Performance", "📋 Penalty Accounts"])
 
 with tab_corp:
     st.markdown("#### ZVS & ZVC Sales Breakdown Metrics")
-    if not df_bifurcation.empty: st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
-    else: st.info("Awaiting live corporate entity data synchronization...")
+    if not df_bifurcation.empty:
+        st.dataframe(df_bifurcation, use_container_width=True, hide_index=True)
+    else:
+        st.info("Awaiting live corporate entity data synchronization...")
+        
 with tab_team:
     st.markdown("#### Salesperson Performance Tracking Profile")
-    if not df_crr_team.empty: st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
-    else: st.info("Awaiting live team sales log data synchronization...")
+    if not df_crr_team.empty:
+        st.dataframe(df_crr_team, use_container_width=True, hide_index=True)
+    else:
+        st.info("Awaiting live team sales log data synchronization...")
+        
 with tab_stock:
     st.markdown("#### Overdue Balances Accounts Audit Ledger")
-    if not df_stock_interest.empty: st.dataframe(df_stock_interest, use_container_width=True, hide_index=True)
-    else: st.info("Awaiting live risk ledger penalty tracking records...")
+    if not df_stock_interest.empty:
+        st.dataframe(df_stock_interest, use_container_width=True, hide_index=True)
+    else:
+        st.info("Awaiting live risk ledger penalty tracking records...")
